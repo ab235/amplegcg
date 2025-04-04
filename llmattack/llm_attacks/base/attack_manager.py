@@ -666,7 +666,7 @@ class MultiPromptAttack(object):
     
     def run(self, 
         n_steps=100, 
-        batch_size=64, 
+        batch_size=1024, 
         topk=256, 
         temp=1, 
         allow_non_ascii=True,
@@ -1167,8 +1167,8 @@ class IndividualPromptAttack(object):
 
     def run(self, 
             n_steps: int = 1000, 
-            batch_size: int = 1024, 
-            topk: int = 256, 
+            batch_size: int = 32, 
+            topk: int = 64, 
             temp: float = 1., 
             allow_non_ascii: bool = True,
             target_weight: Optional[Any] = None, 
