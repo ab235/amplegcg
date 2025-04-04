@@ -932,8 +932,8 @@ class ProgressiveMultiPromptAttack(object):
         return mpa_kwargs
 
     def run(self, 
-            n_steps: int = 1000, 
-            batch_size: int = 1024, 
+            n_steps: int = 10, 
+            batch_size: int = 64, 
             topk: int = 256, 
             temp: float = 1.,
             allow_non_ascii: bool = False,
