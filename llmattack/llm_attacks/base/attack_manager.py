@@ -665,8 +665,8 @@ class MultiPromptAttack(object):
 
     
     def run(self, 
-        n_steps=100, 
-        batch_size=1024, 
+        n_steps=10, 
+        batch_size=128, 
         topk=256, 
         temp=1, 
         allow_non_ascii=True,
