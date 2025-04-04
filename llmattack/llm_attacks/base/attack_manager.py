@@ -1166,7 +1166,7 @@ class IndividualPromptAttack(object):
         return mpa_kwargs
 
     def run(self, 
-            n_steps: int = 1000, 
+            n_steps: int = 100, 
             batch_size: int = 32, 
             topk: int = 64, 
             temp: float = 1., 
