@@ -36,7 +36,7 @@ python -u ../main.py \
     --config.attack=gcg \
     --config.train_data="../../data/advbench/harmful_behaviors_train_split.csv" \
     --config.result_prefix="${base_data}/results_n_steps_${n_steps}_${config}/gcg_offset${data_offset}" \
-    --config.n_train_data=10 \
+    --config.n_train_data=1 \
     --config.data_offset=$data_offset \
     --config.n_steps=$n_steps \
     --config.test_steps=1 \

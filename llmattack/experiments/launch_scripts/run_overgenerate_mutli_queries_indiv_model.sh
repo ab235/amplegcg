@@ -47,5 +47,5 @@ python -u ../main.py \
     --config.n_test_data=$n_test_data \
     --config.n_steps=$n_steps \
     --config.test_steps=1 \
-    --config.batch_size=256
+    --config.batch_size=32
 
