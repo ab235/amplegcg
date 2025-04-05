@@ -117,7 +117,7 @@ class GCGMultiPromptAttack(MultiPromptAttack):
         super().__init__(*args, **kwargs)
 
     def step(self, 
-             batch_size=1024, 
+             batch_size=32, 
              topk=256, 
              temp=1, 
              allow_non_ascii=True, 
