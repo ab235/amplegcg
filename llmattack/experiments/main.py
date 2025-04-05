@@ -85,7 +85,7 @@ def main(_):
             test_workers=test_workers,
             mpa_deterministic=params.gbda_deterministic,
             mpa_lr=params.lr,
-            mpa_batch_size=params.batch_size,
+            mpa_batch_size=32,
             mpa_n_steps=params.n_steps,
             test_prefixes = _test_prefixes
         )
@@ -102,13 +102,13 @@ def main(_):
             test_workers=test_workers,
             mpa_deterministic=params.gbda_deterministic,
             mpa_lr=params.lr,
-            mpa_batch_size=params.batch_size,
+            mpa_batch_size=32,
             mpa_n_steps=params.n_steps,
             test_prefixes = _test_prefixes
         )
     attack.run(
         n_steps=params.n_steps,
-        batch_size=params.batch_size, 
+        batch_size=32, 
         topk=params.topk,
         temp=params.temp,
         target_weight=params.target_weight,

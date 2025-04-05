@@ -21,7 +21,7 @@ export WANDB_MODE=disabled
 
 data_offset=0
 export config=$1 # llama2 or vicuna
-export n_steps=$2
+export n_steps=100
 export n_train_data=${3:-318}
 export n_test_data=${4:-1}
 
