@@ -86,7 +86,7 @@ def main(_):
             mpa_deterministic=params.gbda_deterministic,
             mpa_lr=params.lr,
             mpa_batch_size=32,
-            mpa_n_steps=params.n_steps,
+            mpa_n_steps=100,
             test_prefixes = _test_prefixes
         )
     else:
@@ -103,11 +103,11 @@ def main(_):
             mpa_deterministic=params.gbda_deterministic,
             mpa_lr=params.lr,
             mpa_batch_size=32,
-            mpa_n_steps=params.n_steps,
+            mpa_n_steps=100,
             test_prefixes = _test_prefixes
         )
     attack.run(
-        n_steps=params.n_steps,
+        n_steps=100,
         batch_size=32, 
         topk=params.topk,
         temp=params.temp,
