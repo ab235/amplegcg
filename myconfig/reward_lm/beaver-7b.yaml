@@ -1,4 +1,4 @@
-model_name: "TheBloke/beaver-7B-fp16"
+model_name: "PKU-Alignment/beaver-7b-v1.0"
 show_name: "beaver-7b"
 template: "BEGINNING OF CONVERSATION: USER: {model_input} ASSISTANT: {model_output}"
 batch_size: 8
