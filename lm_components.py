@@ -1,4 +1,5 @@
 from transformers import AutoTokenizer,GenerationConfig,AutoModelForCausalLM
+from safe_rlhf.models import AutoModelForScore
 #from safe_rlhf.models import AutoModelForScore
 import os
 import torch.nn as nn
@@ -48,7 +49,7 @@ def create_reward(config):
                 kwargs = check_torch_dtype(config)
 
                 if "beaver" in model_name.lower():
-                    #model = AutoModelForScore.from_pretrained(model_name, **kwargs,**device_map)
+                    model = AutoModelForScore.from_pretrained(model_name, **kwargs,**device_map)
                     #tokenizer = AutoTokenizer.from_pretrained(model_name, use_fast=False)
                     tokenizer = AutoTokenizer.from_pretrained(model_name, use_fast=True)
                     tokenizer.padding_side = "right"
