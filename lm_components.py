@@ -49,7 +49,8 @@ def create_reward(config):
 
                 if "beaver" in model_name.lower():
                     #model = AutoModelForScore.from_pretrained(model_name, **kwargs,**device_map)
-                    tokenizer = AutoTokenizer.from_pretrained(model_name, use_fast=False)
+                    #tokenizer = AutoTokenizer.from_pretrained(model_name, use_fast=False)
+                    tokenizer = AutoTokenizer.from_pretrained(model_name, use_fast=True)
                     tokenizer.padding_side = "right"
                 elif "harmbench" in model_name.lower():
                     template_path = self.template.replace("path:","")
