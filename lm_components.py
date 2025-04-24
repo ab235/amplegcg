@@ -1,5 +1,5 @@
 from transformers import AutoTokenizer,GenerationConfig,AutoModelForCausalLM
-from safe_rlhf.models.score_model import AutoModelForScore
+from safe_rlhf.safe_rlhf.models.score_model import AutoModelForScore
 #from safe_rlhf.models import AutoModelForScore
 import os
 import torch.nn as nn
