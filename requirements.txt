@@ -1,6 +1,6 @@
 
 ## core pins
-numpy==1.26.4
+numpy
 
 ## extras
 print_color
@@ -8,9 +8,9 @@ backoff
 
 ## PKU-Alignment’s safe-rlhf (install from GitHub; will be named “safe-rlhf”)
 git+https://github.com/PKU-Alignment/safe-rlhf.git@main#egg=safe_rlhf
-transformers==4.37.0
+transformers
 ml_collections
-fschat==0.2.34
-hydra-core==1.3.2
-jsonlines==4.0.0
-torch==2.1.0
+fschat
+hydra-core
+jsonlines
+torch
