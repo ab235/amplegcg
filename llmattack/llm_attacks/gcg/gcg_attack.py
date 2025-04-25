@@ -75,6 +75,8 @@ def token_gradients(
       - CE loss on `target_slice`
       - an attention penalty over the segments in `attn_slices`
     """
+    if input_ids.dim() == 1:
+        input_ids = input_ids.unsqueeze(0)
     # 1) build one-hot embeddings (as in original GCG)
     # --- dtype/device fix: match embeddings ---
     embed_weights = get_embedding_matrix(model)   # (vocab_size, dim)
