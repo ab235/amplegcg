@@ -5,6 +5,8 @@ numpy
 ## extras
 print_color
 backoff
+fsspec==2025.3.2
+gcsfs==2025.3.2
 
 ## PKU-Alignment’s safe-rlhf (install from GitHub; will be named “safe-rlhf”)
 git+https://github.com/PKU-Alignment/safe-rlhf.git@main#egg=safe_rlhf
