@@ -11,103 +11,95 @@ from transformers import AutoTokenizer
 
 def compute_dynamic_attn_weights(
     attentions: torch.Tensor,
-    slices: dict[str, slice],
+    attn_slices: Dict[str, slice],
     pooling: str = 'mean'
-) -> dict[str, float]:
+) -> Dict[str, float]:
     """
-    From the model's own attention probabilities, compute a normalized weight
-    for each segment (goal, sys, control).
+    Given last‐layer attentions (batch, heads, seq, seq) and a dict of named slices,
+    compute each slice’s average attention mass and normalize to sum=1.
     """
-    # attentions:   (batch, heads, seq, seq)
-    # 1) average over heads → (batch, seq, seq)
+    # average over heads → (batch, seq, seq)
     attn = attentions.mean(dim=1)
 
-    # 2) for each named slice, pool over that slice’s rows+all cols
-    vals = {}
-    for name, sl in slices.items():
+    # pool each slice into a scalar
+    raw: Dict[str, float] = {}
+    for name, sl in attn_slices.items():
         seg = attn[:, sl, :]  # (batch, seg_len, seq)
         if pooling == 'mean':
-            # mean over both dims, then mean over batch
-            vals[name] = seg.mean(dim=(1,2)).mean().item()
+            # mean over (seg_len x seq) then batch
+            raw[name] = seg.mean(dim=(1,2)).mean().item()
         else:
-            vals[name] = seg.sum(dim=(1,2)).mean().item()
+            raw[name] = seg.sum(dim=(1,2)).mean().item()
 
-    # 3) normalize to sum=1
-    total = sum(vals.values()) or 1.0
-    return {name: v/total for name,v in vals.items()}
+    total = sum(raw.values()) or 1.0
+    return {name: v/total for name, v in raw.items()}
 
 
 def attention_loss(
     attentions: torch.Tensor,
-    slices: dict[str, slice],
+    attn_slices: Dict[str, slice],
     pooling: str,
-    weights: dict[str, float]
+    weights: Dict[str, float]
 ) -> torch.Tensor:
     """
-    Weighted sum of pooled attention over each slice,
-    using the provided weights.
+    Compute weighted sum of pooled attentions over each named slice.
+    Returns a Tensor of shape (batch,) giving the penalty for each example.
     """
-    # (batch, heads, seq, seq) → (batch, seq, seq)
+    # collapse heads → (batch, seq, seq)
     attn = attentions.mean(dim=1)
     batch_size = attn.size(0)
     out = torch.zeros(batch_size, device=attn.device)
-    for name, sl in slices.items():
+
+    for name, sl in attn_slices.items():
         seg = attn[:, sl, :]  # (batch, seg_len, seq)
         if pooling == 'mean':
             v = seg.mean(dim=(1,2))
         else:
             v = seg.sum(dim=(1,2))
         out = out + weights.get(name, 0.0) * v
-    return out  # (batch,)
 
+    return out  # (batch,)
 
 
 def token_gradients(
     model,
     input_ids: torch.LongTensor,
-    goal_slice: slice,
-    sys_slice: slice,
-    control_slice: slice,
-    assistant_slice: slice,
+    attn_slices: Dict[str, slice],
     target_slice: slice,
     target_weight: float = 1.0,
     attn_pool: str = 'mean',
     attn_weight: float = 0.5
 ):
     """
-    Compute gradient w.r.t. control tokens blending CE on target_slice
-    with a dynamic attention penalty pulled from the model itself.
+    Compute gradients w.r.t. control tokens by blending:
+      - CE loss on `target_slice`
+      - an attention penalty over the segments in `attn_slices`
     """
-    # 1) build one‐hot embeddings as before
-    embed_weights = get_embedding_matrix(model)  # your existing helper
+    # 1) build one-hot embeddings (as in original GCG)
+    embed_weights = get_embedding_matrix(model)   # your existing helper
     one_hot = torch.zeros(
         (1, input_ids.size(-1), embed_weights.size(0)),
         device=input_ids.device, requires_grad=True
     )
-    full_embeds = one_hot @ embed_weights
+    full_embeds = one_hot @ embed_weights         # (1, seq, dim)
 
-    # 2) forward → logits + attentions
+    # 2) forward, capture attentions
     out = model(inputs_embeds=full_embeds, output_attentions=True)
-    logits = out.logits                    # (1, seq, vocab)
-    attentions = out.attentions[-1]        # (1, heads, seq, seq)
+    logits = out.logits                           # (1, seq, vocab)
+    attentions = out.attentions[-1]               # (1, heads, seq, seq)
 
-    # 3) CE loss on the suffix
-    tgt = input_ids[0, target_slice]
+    # 3) standard CE on the true target suffix
+    tgt_ids = input_ids[0, target_slice]
     ce = nn.CrossEntropyLoss()
-    loss_ce = ce(logits[0, target_slice, :], tgt)
+    loss_ce = ce(logits[0, target_slice, :], tgt_ids)
 
-    # 4) dynamic weights from the model’s own attentions
-    slices = {
-        'goal': goal_slice,
-        'sys': sys_slice,
-        'control': control_slice
-    }
-    dyn_weights = compute_dynamic_attn_weights(attentions, slices, pooling=attn_pool)
+    # 4) dynamic per-segment weights from the model’s own attentions
+    dyn_weights = compute_dynamic_attn_weights(attentions, attn_slices, pooling=attn_pool)
 
-    # 5) pooled attention loss
-    loss_attn = attention_loss(attentions, slices, pooling=attn_pool, weights=dyn_weights)
+    # 5) pooled attention penalty
+    loss_attn = attention_loss(attentions, attn_slices, pooling=attn_pool, weights=dyn_weights)
 
-    # 6) combine, backprop
+    # 6) combine and backprop
     loss = target_weight * loss_ce + attn_weight * loss_attn.mean()
     loss.backward()
 
@@ -122,13 +114,19 @@ class GCGAttackPrompt(AttackPrompt):
         super().__init__(*args, **kwargs)
     
     def grad(self, model):
+        input_ids = self.input_ids.to(model.device)
+
+        # pick whichever slices you want to penalize:
+        attn_slices = {
+            'goal':    self._goal_slice,
+            'control': self._control_slice,
+            # 'prefix':  self._user_role_slice,   # if you want full-prefix
+        }
+
         return token_gradients(
             model=model,
-            input_ids=self.input_ids.to(model.device),
-            goal_slice=self._goal_slice,
-            sys_slice=self._sys_prompt_slice,
-            control_slice=self._control_slice,
-            assistant_slice=self._assistant_role_slice,
+            input_ids=input_ids,
+            attn_slices=attn_slices,
             target_slice=self._target_slice,
             target_weight=1.0,
             attn_pool='mean',
