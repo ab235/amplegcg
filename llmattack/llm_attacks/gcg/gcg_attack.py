@@ -11,9 +11,9 @@ from transformers import AutoTokenizer
 
 def compute_dynamic_attn_weights(
     attentions: torch.Tensor,
-    attn_slices: Dict[str, slice],
+    attn_slices: dict[str, slice],
     pooling: str = 'mean'
-) -> Dict[str, float]:
+) -> dict[str, float]:
     """
     Given last‐layer attentions (batch, heads, seq, seq) and a dict of named slices,
     compute each slice’s average attention mass and normalize to sum=1.
@@ -22,7 +22,7 @@ def compute_dynamic_attn_weights(
     attn = attentions.mean(dim=1)
 
     # pool each slice into a scalar
-    raw: Dict[str, float] = {}
+    raw: dict[str, float] = {}
     for name, sl in attn_slices.items():
         seg = attn[:, sl, :]  # (batch, seg_len, seq)
         if pooling == 'mean':
@@ -37,9 +37,9 @@ def compute_dynamic_attn_weights(
 
 def attention_loss(
     attentions: torch.Tensor,
-    attn_slices: Dict[str, slice],
+    attn_slices: dict[str, slice],
     pooling: str,
-    weights: Dict[str, float]
+    weights: dict[str, float]
 ) -> torch.Tensor:
     """
     Compute weighted sum of pooled attentions over each named slice.
@@ -64,7 +64,7 @@ def attention_loss(
 def token_gradients(
     model,
     input_ids: torch.LongTensor,
-    attn_slices: Dict[str, slice],
+    attn_slices: dict[str, slice],
     target_slice: slice,
     target_weight: float = 1.0,
     attn_pool: str = 'mean',
