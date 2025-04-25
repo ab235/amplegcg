@@ -89,17 +89,18 @@ def token_gradients(
     # 4) get “clean” embeddings for everything once
     embeds = get_embeddings(model, input_ids).detach()   # (1, seq, dim)
 
-    # 5) build one-hot only over control tokens WITHOUT in-place ops
+    # 5) build one-hot only over control tokens WITH in-place ops
     ctrl_ids    = input_ids[0, attn_slices['control']]         # (control_len,)
     control_len = ctrl_ids.size(0)
-    # start with a float tensor (no grad yet)
+    # start with a float tensor (leaf, no grad yet)
     one_hot = torch.zeros(
         (control_len, embed_weights.size(0)),
-        dtype=dtype, device=device
+        dtype=dtype,
+        device=device
     )
-    # out-of-place scatter → new tensor
-    one_hot = one_hot.scatter(1, ctrl_ids.unsqueeze(1), 1.0)
-    # now mark it a leaf that requires grad
+    # in-place scatter so this remains a leaf
+    one_hot.scatter_(1, ctrl_ids.unsqueeze(1), 1.0)
+    # now mark it to require gradients
     one_hot.requires_grad_()
 
     # 6) splice & forward as before…
