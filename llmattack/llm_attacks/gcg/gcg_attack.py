@@ -75,43 +75,56 @@ def token_gradients(
       - CE loss on `target_slice`
       - an attention penalty over the segments in `attn_slices`
     """
+    # 1) ensure batch dim
     if input_ids.dim() == 1:
         input_ids = input_ids.unsqueeze(0)
-    # 1) build one-hot embeddings (as in original GCG)
-    # --- dtype/device fix: match embeddings ---
-    embed_weights = get_embedding_matrix(model)   # (vocab_size, dim)
+
+    # 2) pull out our slices
+    control_slice = attn_slices['control']
+
+    # 3) get embeddings & build one-hot in matching dtype/device
+    embed_weights = get_embedding_matrix(model)          # (vocab, dim)
     dtype, device = embed_weights.dtype, embed_weights.device
 
-    # build one-hot in same dtype & device
+    # 4) get “clean” embeddings for everything once
+    embeds = get_embeddings(model, input_ids).detach()   # (1, seq, dim)
+
+    # 5) build one-hot only over control tokens
+    ctrl_ids = input_ids[0, control_slice]               # (control_len,)
+    control_len = ctrl_ids.size(0)
     one_hot = torch.zeros(
-        (1, input_ids.size(-1), embed_weights.size(0)),
-        dtype=dtype,
-        device=device,
-        requires_grad=True
+        (control_len, embed_weights.size(0)),
+        dtype=dtype, device=device, requires_grad=True
     )
-    full_embeds = one_hot @ embed_weights         # (1, seq, dim)
+    one_hot.scatter_(1, ctrl_ids.unsqueeze(1), 1.0)
 
-    # 2) forward, capture attentions
+    # 6) splice updated control embeddings back into the full sequence
+    control_embeds = (one_hot @ embed_weights).unsqueeze(0)  # (1, control_len, dim)
+    full_embeds = torch.cat([
+        embeds[:, :control_slice.start, :],
+        control_embeds,
+        embeds[:, control_slice.stop:, :]
+    ], dim=1)  # (1, seq, dim)
+
+    # 7) forward with attentions
     out = model(inputs_embeds=full_embeds, output_attentions=True)
-    logits = out.logits                           # (1, seq, vocab)
-    attentions = out.attentions[-1]               # (1, heads, seq, seq)
+    logits = out.logits                                  # (1, seq, vocab)
+    attentions = out.attentions[-1]                      # (1, heads, seq, seq)
 
-    # 3) standard CE on the true target suffix
-    tgt_ids = input_ids[0, target_slice]
-    ce = nn.CrossEntropyLoss()
-    loss_ce = ce(logits[0, target_slice, :], tgt_ids)
+    # 8) CE loss on the true target suffix
+    tgt_ids = input_ids[0, target_slice]                 # (target_len,)
+    loss_ce = nn.CrossEntropyLoss()(logits[0, target_slice, :], tgt_ids)
 
-    # 4) dynamic per-segment weights from the model’s own attentions
-    dyn_weights = compute_dynamic_attn_weights(attentions, attn_slices, pooling=attn_pool)
+    # 9) dynamic attention weights + penalty
+    dyn_w = compute_dynamic_attn_weights(attentions, attn_slices, pooling=attn_pool)
+    loss_attn = attention_loss(attentions, attn_slices, pooling=attn_pool, weights=dyn_w)
 
-    # 5) pooled attention penalty
-    loss_attn = attention_loss(attentions, attn_slices, pooling=attn_pool, weights=dyn_weights)
-
-    # 6) combine and backprop
+    # 10) combine & backprop
     loss = target_weight * loss_ce + attn_weight * loss_attn.mean()
     loss.backward()
 
-    return one_hot.grad.clone()
+    # 11) return just the control-region gradient
+    return one_hot.grad.clone()  # (control_len, vocab)
 
 
 
@@ -124,11 +137,10 @@ class GCGAttackPrompt(AttackPrompt):
     def grad(self, model):
         input_ids = self.input_ids.to(model.device)
 
-        # pick whichever slices you want to penalize:
         attn_slices = {
             'goal':    self._goal_slice,
             'control': self._control_slice,
-            # 'prefix':  self._user_role_slice,   # if you want full-prefix
+            # optionally: 'prefix': self._user_role_slice
         }
 
         return token_gradients(
