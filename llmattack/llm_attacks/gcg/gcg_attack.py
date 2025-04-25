@@ -11,9 +11,9 @@ from transformers import AutoTokenizer
 
 def compute_dynamic_attn_weights(
     attentions: torch.Tensor,
-    slices: Dict[str, slice],
+    slices: dict[str, slice],
     pooling: str = 'mean'
-) -> Dict[str, float]:
+) -> dict[str, float]:
     """
     From the model's own attention probabilities, compute a normalized weight
     for each segment (goal, sys, control).
@@ -39,9 +39,9 @@ def compute_dynamic_attn_weights(
 
 def attention_loss(
     attentions: torch.Tensor,
-    slices: Dict[str, slice],
+    slices: dict[str, slice],
     pooling: str,
-    weights: Dict[str, float]
+    weights: dict[str, float]
 ) -> torch.Tensor:
     """
     Weighted sum of pooled attention over each slice,
