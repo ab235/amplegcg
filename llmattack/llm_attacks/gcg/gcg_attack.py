@@ -76,10 +76,16 @@ def token_gradients(
       - an attention penalty over the segments in `attn_slices`
     """
     # 1) build one-hot embeddings (as in original GCG)
-    embed_weights = get_embedding_matrix(model)   # your existing helper
+    # --- dtype/device fix: match embeddings ---
+    embed_weights = get_embedding_matrix(model)   # (vocab_size, dim)
+    dtype, device = embed_weights.dtype, embed_weights.device
+
+    # build one-hot in same dtype & device
     one_hot = torch.zeros(
         (1, input_ids.size(-1), embed_weights.size(0)),
-        device=input_ids.device, requires_grad=True
+        dtype=dtype,
+        device=device,
+        requires_grad=True
     )
     full_embeds = one_hot @ embed_weights         # (1, seq, dim)
 
