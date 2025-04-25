@@ -7,7 +7,7 @@ set -e
 save_dir="./evluatation_results"
 split="test"
 ppl=false
-augmented_GCG=FAILUREMANAGMENT
+augmented_GCG=FAILUREMANAGEMENT
 victim_model=llama2-chat
 
 python evaluate_augmentedGCG.py s_p_t_dir=$save_dir target_lm=$victim_model force_append=true prompt_own_list_name=$augmented_GCG prompt_way=own data_args.split=${split} ppl=${ppl} target_lm.generation_configs.max_new_tokens=100
