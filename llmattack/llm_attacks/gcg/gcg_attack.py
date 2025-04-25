@@ -9,63 +9,111 @@ from llm_attacks import AttackPrompt, MultiPromptAttack, PromptManager
 from llm_attacks import get_embedding_matrix, get_embeddings
 from transformers import AutoTokenizer
 
-def token_gradients(model, input_ids, input_slice, target_slice, loss_slice):
-
+def compute_dynamic_attn_weights(
+    attentions: torch.Tensor,
+    slices: Dict[str, slice],
+    pooling: str = 'mean'
+) -> Dict[str, float]:
     """
-    Computes gradients of the loss with respect to the coordinates.
-    
-    Parameters
-    ----------
-    model : Transformer Model
-        The transformer model to be used.
-    input_ids : torch.Tensor
-        The input sequence in the form of token ids.
-    input_slice : slice
-        The slice of the input sequence for which gradients need to be computed.
-    target_slice : slice
-        The slice of the input sequence to be used as targets.
-    loss_slice : slice
-        The slice of the logits to be used for computing the loss.
-
-    Returns
-    -------
-    torch.Tensor
-        The gradients of each token in the input_slice with respect to the loss.
+    From the model's own attention probabilities, compute a normalized weight
+    for each segment (goal, sys, control).
     """
+    # attentions:   (batch, heads, seq, seq)
+    # 1) average over heads → (batch, seq, seq)
+    attn = attentions.mean(dim=1)
 
-    embed_weights = get_embedding_matrix(model)
+    # 2) for each named slice, pool over that slice’s rows+all cols
+    vals = {}
+    for name, sl in slices.items():
+        seg = attn[:, sl, :]  # (batch, seg_len, seq)
+        if pooling == 'mean':
+            # mean over both dims, then mean over batch
+            vals[name] = seg.mean(dim=(1,2)).mean().item()
+        else:
+            vals[name] = seg.sum(dim=(1,2)).mean().item()
+
+    # 3) normalize to sum=1
+    total = sum(vals.values()) or 1.0
+    return {name: v/total for name,v in vals.items()}
+
+
+def attention_loss(
+    attentions: torch.Tensor,
+    slices: Dict[str, slice],
+    pooling: str,
+    weights: Dict[str, float]
+) -> torch.Tensor:
+    """
+    Weighted sum of pooled attention over each slice,
+    using the provided weights.
+    """
+    # (batch, heads, seq, seq) → (batch, seq, seq)
+    attn = attentions.mean(dim=1)
+    batch_size = attn.size(0)
+    out = torch.zeros(batch_size, device=attn.device)
+    for name, sl in slices.items():
+        seg = attn[:, sl, :]  # (batch, seg_len, seq)
+        if pooling == 'mean':
+            v = seg.mean(dim=(1,2))
+        else:
+            v = seg.sum(dim=(1,2))
+        out = out + weights.get(name, 0.0) * v
+    return out  # (batch,)
+
+
+
+def token_gradients(
+    model,
+    input_ids: torch.LongTensor,
+    goal_slice: slice,
+    sys_slice: slice,
+    control_slice: slice,
+    assistant_slice: slice,
+    target_slice: slice,
+    target_weight: float = 1.0,
+    attn_pool: str = 'mean',
+    attn_weight: float = 0.5
+):
+    """
+    Compute gradient w.r.t. control tokens blending CE on target_slice
+    with a dynamic attention penalty pulled from the model itself.
+    """
+    # 1) build one‐hot embeddings as before
+    embed_weights = get_embedding_matrix(model)  # your existing helper
     one_hot = torch.zeros(
-        input_ids[input_slice].shape[0],
-        embed_weights.shape[0],
-        device=model.device,
-        dtype=embed_weights.dtype
+        (1, input_ids.size(-1), embed_weights.size(0)),
+        device=input_ids.device, requires_grad=True
     )
-    one_hot.scatter_(
-        1, 
-        input_ids[input_slice].unsqueeze(1),
-        torch.ones(one_hot.shape[0], 1, device=model.device, dtype=embed_weights.dtype)
-    )
-    one_hot.requires_grad_()
-    input_embeds = (one_hot @ embed_weights).unsqueeze(0)
-    
-    # now stitch it together with the rest of the embeddings
-    embeds = get_embeddings(model, input_ids.unsqueeze(0)).detach()
-    full_embeds = torch.cat(
-        [
-            embeds[:,:input_slice.start,:], 
-            input_embeds, 
-            embeds[:,input_slice.stop:,:]
-        ], 
-        dim=1)
-    
-    logits = model(inputs_embeds=full_embeds).logits
-    targets = input_ids[target_slice]
-    loss_fn = nn.CrossEntropyLoss()
-    # original
-    loss_1 = loss_fn(logits[0,loss_slice,:], targets)
-    loss = loss_1
+    full_embeds = one_hot @ embed_weights
+
+    # 2) forward → logits + attentions
+    out = model(inputs_embeds=full_embeds, output_attentions=True)
+    logits = out.logits                    # (1, seq, vocab)
+    attentions = out.attentions[-1]        # (1, heads, seq, seq)
+
+    # 3) CE loss on the suffix
+    tgt = input_ids[0, target_slice]
+    ce = nn.CrossEntropyLoss()
+    loss_ce = ce(logits[0, target_slice, :], tgt)
+
+    # 4) dynamic weights from the model’s own attentions
+    slices = {
+        'goal': goal_slice,
+        'sys': sys_slice,
+        'control': control_slice
+    }
+    dyn_weights = compute_dynamic_attn_weights(attentions, slices, pooling=attn_pool)
+
+    # 5) pooled attention loss
+    loss_attn = attention_loss(attentions, slices, pooling=attn_pool, weights=dyn_weights)
+
+    # 6) combine, backprop
+    loss = target_weight * loss_ce + attn_weight * loss_attn.mean()
     loss.backward()
+
     return one_hot.grad.clone()
+
+
 
 class GCGAttackPrompt(AttackPrompt):
 
@@ -75,11 +123,16 @@ class GCGAttackPrompt(AttackPrompt):
     
     def grad(self, model):
         return token_gradients(
-            model, 
-            self.input_ids.to(model.device), 
-            self._control_slice, 
-            self._target_slice, 
-            self._loss_slice
+            model=model,
+            input_ids=self.input_ids.to(model.device),
+            goal_slice=self._goal_slice,
+            sys_slice=self._sys_prompt_slice,
+            control_slice=self._control_slice,
+            assistant_slice=self._assistant_role_slice,
+            target_slice=self._target_slice,
+            target_weight=1.0,
+            attn_pool='mean',
+            attn_weight=0.5
         )
 
 class GCGPromptManager(PromptManager):
