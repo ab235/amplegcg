@@ -79,7 +79,7 @@ def token_gradients(
     if input_ids.dim() == 1:
         input_ids = input_ids.unsqueeze(0)
 
-    # 2) pull out our slices
+    # 2) slices
     control_slice = attn_slices['control']
 
     # 3) get embeddings & build one-hot in matching dtype/device
